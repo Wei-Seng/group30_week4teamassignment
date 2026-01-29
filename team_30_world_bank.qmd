@@ -1,0 +1,148 @@
+---
+title: "Team 01 World Bank"
+subtitle: AAI1001 -- Data Engineering and Visualization<br>AY25/26 Tri 2 (Assisted by GenAI)<br>Assessment 2 (Teamwork 1)
+
+author: 
+  - name: <b>KOH SOON CHUAN</b> (2400951)
+  - name: <b>CHI WEI SENG</b> (2401493)
+  - name: <b>CHOONG WAN QIN</b> (2402311)
+  - name: <b>VENUS LOW</b> (2503741)
+  - name: <b>GOH JASON FADIL</b> (2502643)
+
+date: 2026-01-29
+date-format: "dddd MMM DD, YYYY"
+
+# more settings
+format: 
+  html:
+    toc: true
+    toc-location: left
+    number-sections: true
+    embed-resources: true
+    theme: cosmo
+    code-fold: true
+    code-summary: "Click to expand/collapse"
+    
+---
+
+
+# Analyzing Country-Level Statistics on [your assigned data] (50%)
+
+## About the data
+In this team assessment, we are working with two data sets from the World Bank which provides international demographics as well as patent application information. The first data set contains information on the population of various countries which includes the country names, regions, and income groups. The population data is essential when analyzing national indicators and how it is influenced by the country size. 
+\
+\
+The second data set focuses on the indicator "Patent applications, residents". According to the World Bank metadata, the metadata measures the patent applications filed by individuals or organizations that are residents of a certain country.
+\
+\
+It is important to study this indicator as it reflects a country's ability to create innovative residents, which often indicate strong Research and Development (R&D) activities. The metadata captures invention originating from within the country rather than applications filed from foreign entities. By combining this indicator with the population data, we can further analyze the patent activities in relation to the size of the population, providing insights into innovation density and trends across different countries and regions.
+
+## Cleaning the Data
+
+### Creating the clean_up_wb_csv() Function
+
+```{r}
+```{r}
+clean_up_wb_csv <- function(
+    in_file,
+    out_file = "world_bank_data.csv") {
+  # Use readr::read_lines() to read the file line by line
+  lines <- readr::read_lines(in_file)
+
+  # Drop all lines before the first line that starts with
+  # "Country Name"
+  lines <- lines[stringr::str_which(lines, "^\"Country Name\""):length(lines)]
+
+  # Remove any comma at the end of a line
+  lines <- stringr::str_remove(lines, ",$")
+
+  # Edit the first line performing all of the following steps:
+  # *   Convert all uppercase letters to lower case.
+  # *   Replace any whitespace with underscores.
+  # *   Put `year_` in front of any string in double-quotation marks that
+  #     starts with a digit.
+  # *   Remove all double-quotation marks.
+  lines[1] <- lines[1] |>
+    stringr::str_to_lower() |>
+    stringr::str_replace_all(" ", "_") |>
+    stringr::str_replace_all("\"(\\d+)", "year_\\1") |>
+    stringr::str_remove_all("\"")
+
+  # Define a function to remove double quotation marks around empty strings
+  # and integers
+  remove_quotes <- function(line) {
+  stringr::str_replace_all(
+    line,
+    "\"(\\s*|-?\\d+)\"",
+    "\\1"
+  )
+}
+
+  # Apply the function to each line using purrr's map_chr() function
+  lines <- c(
+    lines[1],
+    purrr::map_chr(lines[-1], remove_quotes)
+  )
+
+  # Rename country_name to country_name_wb to distinguish it from the
+  # country_name_en column in the country_codes table. The names in the
+  # tables don't match. Instead country_code should be used for joining
+  # the tables.
+  lines[1] <- stringr::str_replace(
+    lines[1],
+    "country_name",
+    "country_name_wb"
+  )
+
+  # Write the cleaned-up lines to a new file
+  readr::write_lines(lines, out_file)
+}
+```
+
+### Calling clean_up_wb_csv() to Clean the Data
+```{r}
+# Clean population data
+clean_up_wb_csv(
+in_file = "world_bank_total_population/API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  out_file = "population.csv"
+)
+
+# Clean patent applications (residents) data
+clean_up_wb_csv(
+  in_file = "API_IP.PAT.RESD_DS2_en_csv_v2_226/API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  out_file = "indicator.csv"
+)
+```
+## Importing the Data to RStudio
+
+## Removing Rows not Pertaining to Countries
+
+### Importing the country_codes Table
+
+### Checking the Number of Rows in`population` and `indicator`
+
+### Removing Non-Country Rows
+
+### Checking the Number of Rows in the Reduced Tables
+
+## Analyzing Country-Level Data
+
+### Generating the Rankings
+
+### Analyzing the Results
+
+### Generating "Large Country Low per capita Indicator" table
+
+### Analyzing the Results
+
+# `R` Task (25%)
+
+## Creating and Visualizing `swish()`
+
+## Visualizing the Gradient of `swish()`
+
+## Toy Examples Calling `swish()` and `ReLU()`
+
+## Exploring Other Activation Functions
+
+# Reflection on the Use of GenAI (15%)
