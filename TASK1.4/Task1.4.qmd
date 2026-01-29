@@ -1,0 +1,229 @@
+
+###
+In the first ranking table (top 10 by raw indicator value), the leaders are mostly large, innovation‑intensive economies, so it makes sense that high‑population countries such as China, the United States, and India appear near the top: scale tends to increase the number of inventors, firms, and R&D activity, raising total resident patent applications. However, population does not fully explain the ordering—Japan, Korea (Rep.), and Germany rank highly despite smaller populations, implying that innovation capacity, industrial structure, and R&D intensity can outweigh sheer size. 
+
+###
+In the second table (top 10 by indicator per capita), the ranking shifts because normalizing by population highlights countries with high patenting activity relative to population, not just high totals. As a result, rankings align for countries that combine large volumes with strong innovation intensity, but diverge when very populous countries’ totals look modest per person and smaller, innovation‑dense economies move up.
+
+```{r}
+#| label: top10-patents-with-population
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# --- Read World Bank CSVs (skip 4 metadata rows) ---
+ind_raw <- readr::read_csv(
+  "API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+pop_raw <- readr::read_csv(
+  "API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+# --- Drop completely-empty columns (World Bank files often have a trailing blank col) ---
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# --- Pick latest year that exists in BOTH files ---
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# --- Build latest-year indicator + population tables ---
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")   # keep countries only (drop World)
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")   # keep countries only (drop World)
+
+# --- Join + ranks + top10 with ties (sorted by indicator, then population) ---
+out <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(
+    rank_by_population = dense_rank(desc(population)),
+    rank_by_indicator  = dense_rank(desc(indicator_value))
+  ) |>
+  filter(rank_by_indicator <= 10) |>
+  arrange(desc(indicator_value), desc(population)) |>
+  select(
+    country_name,
+    country_code,
+    population,
+    indicator_value,
+    rank_by_population,
+    rank_by_indicator
+  )
+
+gt(out)
+
+```
+
+
+```{r}
+#| label: top10-patents-per-capita
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# --- Read World Bank CSVs (skip 4 metadata rows) ---
+ind_raw <- readr::read_csv(
+  "API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+pop_raw <- readr::read_csv(
+  "API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+# --- Drop completely-empty columns (World Bank files often have a trailing blank col) ---
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# --- Pick latest year that exists in BOTH files ---
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# --- Build latest-year indicator + population tables (countries only; exclude World) ---
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+# --- Indicator per capita + top 10 with ties ---
+out_per_capita <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(
+    indicator_per_capita = indicator_value / population,
+    rank_per_capita = dense_rank(desc(indicator_per_capita))
+  ) |>
+  filter(rank_per_capita <= 10) |>
+  arrange(desc(indicator_per_capita)) |>
+  select(country_name, country_code, indicator_per_capita, rank_per_capita)
+
+gt(out_per_capita)
+
+```
+
+
+###
+The “large population but low per‑capita indicator” result explains why the two rankings can differ. Some countries rank high on the raw indicator because scale boosts total output, but they drop when the metric is normalized by population. Compared with the per‑capita table, this group reflects weaker innovation intensity per person despite having many people. This suggests that factors like R&D intensity, industrial structure, and how broadly innovation activity is spread matter more than population size alone.
+
+
+```{r}
+#| label: pop-above-median-indpc-below-median
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# --- Read World Bank CSVs (skip 4 metadata rows) ---
+ind_raw <- readr::read_csv(
+  "API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+pop_raw <- readr::read_csv(
+  "API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+# --- Drop completely-empty columns (World Bank files often have a trailing blank col) ---
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# --- Pick latest year that exists in BOTH files ---
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# --- Build latest-year indicator + population (countries only; exclude World) ---
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+# --- Compute per-capita, global medians, filter, count, top 10 by population ---
+df <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(indicator_per_capita = indicator_value / population)
+
+global_median_pop <- median(df$population, na.rm = TRUE)
+global_median_indpc <- median(df$indicator_per_capita, na.rm = TRUE)
+
+filtered <- df |>
+  filter(
+    population > global_median_pop,
+    indicator_per_capita < global_median_indpc
+  )
+
+total_countries <- n_distinct(filtered$country_code)
+
+top10 <- filtered |>
+  arrange(desc(population)) |>
+  slice_head(n = 10) |>
+  select(country_name, country_code, population, indicator_per_capita)
+
+# Show total number, then table of top 10
+tibble(
+  year = latest_year,
+  total_countries = total_countries
+) |>
+  gt()
+
+top10 |>
+  gt()
+
+```
