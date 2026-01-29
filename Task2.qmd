@@ -1,0 +1,136 @@
+
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| label: fig-swish
+#| fig-cap: "Swish Activation Function"
+#| fig-width: 7
+#| fig-height: 4
+
+# Your `swish()` function here
+swish <- function(x) {
+  x / (1 + exp(-x))
+}
+
+library(ggplot2)
+library(tibble)
+
+x <- -10:10
+y <- swish(x)
+tbl_swish <- tibble(x, y)
+
+ggplot(tbl_swish, aes(x, y)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  labs(x = "x", y = "swish(x)")
+```
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| output: true # change it to `true` in your `.qmd` file
+#| label: fig-d-swish
+#| fig-cap: "Gradient of Swish Activation Function"
+#| fig-width: 7
+#| fig-height: 4
+
+# Your `d_swish()` function here
+
+sigmoid <- function(x) 1 / (1 + exp(-x))
+
+d_swish <- function(x) {
+  s <- swish(x) 
+  sig <- sigmoid(x)
+  return(s + sig * (1 - s))
+}
+
+x <- -10:10
+y <- d_swish(x)
+tbl_d_swish <- tibble(x, y)
+
+ggplot(tbl_d_swish, aes(x, y)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  labs(x = "x", y = "d_swish(x)")
+```
+Swish offers superior training performance because its gradient is smooth and non-monotonic, allowing for a small flow of information even for negative values. This smoothness helps deep networks converge more effectively and leads to higher accuracy rates. The compromise is that Swish is significantly more computationally expensive than ReLU because it requires calculating exponential functions and divisions, which can increase the overall time for each training iteration.
+
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| output: true # change it to `true` in your `.qmd` file
+#| label: fig-toy-examples
+#| fig-cap: "Toy Examples Calling swish() and relu()"
+#| fig-width: 7
+#| fig-height: 4
+
+# median ID of team
+student_ids <- c(2400951, 2401493, 2402311, 2503741, 2502643)
+
+median_id <- median(student_ids)
+
+set.seed(median_id)
+
+# 10 element random vector between -10 and 10
+random_vector <- runif(10, min = -10, max = 10)
+
+# Activating the vector
+activated_vector <- swish(random_vector)
+
+# Display results to 2 decimal places
+round(random_vector, 2)
+round(activated_vector, 2)
+
+```
+```{r}
+# ReLU function
+relu <- function(x) pmax(0, x)
+
+# Activate the vector using ReLU
+relu_activated_vector <- relu(random_vector)
+
+# Display ReLU results
+round(relu_activated_vector, 2)
+```
+Yes, swish avoids dead neurons. In the results, for every negative value in the random_vector, the relu_activated_vector produces exactly 0.00. This is evident for all negative inputs, indicating that those neurons are "dead" since they output zero and their gradients will also be zero.
+
+In contrast, the swish activated_vector produces non-zero negative values for those same negative inputs. Because the output is not zero, the gradient remains active, allowing the neuron to continue updating and learning.
+
+```{r}
+#| eval: true
+#| echo: true
+
+# Define additional activation functions
+leaky_relu <- function(x, alpha = 0.01) {
+  return(ifelse(x > 0, x, alpha * x))
+}
+
+elu <- function(x, alpha = 1.0) {
+  return(ifelse(x > 0, x, alpha * (exp(x) - 1)))
+}
+
+gelu <- function(x) {
+  return(0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))))
+}
+
+# Visualize all functions
+x_range <- seq(-5, 5, length.out = 200)
+
+activation_data <- data.frame(
+  x = rep(x_range, 6),
+  y = c(relu(x_range), swish(x_range), leaky_relu(x_range), 
+        elu(x_range), gelu(x_range), tanh(x_range)),
+  Function = rep(c("ReLU", "Swish", "Leaky ReLU", "ELU", "GELU", "Tanh"), 
+                 each = length(x_range))
+)
+
+ggplot(activation_data, aes(x = x, y = y, color = Function)) +
+  geom_line(linewidth = 1) +
+  labs(x = "x", y = "f(x)", title = "Comparison of Activation Functions") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+Leaky ReLU: Modified ReLU with small negative slope (typically α=0.01) for negative inputs, defined as f(x) = max(αx, x). This prevents dead neurons while maintaining computational efficiency. Used in CNNs and general deep learning architectures.
+
+ELU (Exponential Linear Unit): Smooth activation function f(x) = x for x\>0 and α(e\^x - 1) for x≤0. Produces negative outputs that can push mean activations closer to zero, enabling self-normalization. More robust to noise but computationally expensive due to exponential calculation.
+
+GELU (Gaussian Error Linear Unit): Smooth, non-monotonic activation popular in transformer models like BERT and GPT. Approximated as f(x) ≈ 0.5x(1 + tanh(√(2/π)(x + 0.044715x³))). Provides state-of-the-art performance in NLP tasks but requires more computation than ReLU variants.
+
