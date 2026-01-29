@@ -42,7 +42,6 @@ It is important to study this indicator as it reflects a country's ability to cr
 ### Creating the clean_up_wb_csv() Function
 
 ```{r}
-```{r}
 clean_up_wb_csv <- function(
     in_file,
     out_file = "world_bank_data.csv") {
@@ -113,7 +112,49 @@ clean_up_wb_csv(
   out_file = "indicator.csv"
 )
 ```
+
+As evidence that the data import was successful, this is a screenshot of the RStudio Window showing the view of the indicator table.
+
+![Screenshot of Imported Indicator Table](indicator_screenshot.png)
+
 ## Importing the Data to RStudio
+
+```{r}
+#| echo: true
+#| eval: true
+
+library(tidyverse)
+population <- read_csv("population.csv")
+indicator <- read_csv("indicator.csv")
+
+#| label: fig-indicator
+#| fig-cap: "Screenshot of Imported indicator Table"
+#| echo: false
+
+knitr::include_graphics("indicator_screenshot.png")
+
+#| echo: true
+country_codes <- read_csv("country_codes.csv")
+
+#| echo: true
+nrow(population)
+nrow(indicator)
+
+#| echo: true
+population_reduced <- population |> 
+  semi_join(country_codes, by = "country_code")
+
+#| echo: true
+#| eval: true
+
+indicator_reduced <- indicator |> 
+  semi_join(country_codes, by = "country_code")
+
+#| echo: true
+nrow(population_reduced)
+nrow(indicator_reduced)
+```
+
 
 ## Removing Rows not Pertaining to Countries
 
@@ -138,11 +179,194 @@ clean_up_wb_csv(
 # `R` Task (25%)
 
 ## Creating and Visualizing `swish()`
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| label: fig-swish
+#| fig-cap: "Swish Activation Function"
+#| fig-width: 7
+#| fig-height: 4
+
+# Your `swish()` function here
+swish <- function(x) {
+  x / (1 + exp(-x))
+}
+
+library(ggplot2)
+library(tibble)
+
+x <- -10:10
+y <- swish(x)
+tbl_swish <- tibble(x, y)
+
+ggplot(tbl_swish, aes(x, y)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  labs(x = "x", y = "swish(x)")
+```
 
 ## Visualizing the Gradient of `swish()`
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| output: true # change it to `true` in your `.qmd` file
+#| label: fig-d-swish
+#| fig-cap: "Gradient of Swish Activation Function"
+#| fig-width: 7
+#| fig-height: 4
+
+# Your `d_swish()` function here
+
+sigmoid <- function(x) 1 / (1 + exp(-x))
+
+d_swish <- function(x) {
+  s <- swish(x) 
+  sig <- sigmoid(x)
+  return(s + sig * (1 - s))
+}
+
+x <- -10:10
+y <- d_swish(x)
+tbl_d_swish <- tibble(x, y)
+
+ggplot(tbl_d_swish, aes(x, y)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  labs(x = "x", y = "d_swish(x)")
+```
+Swish offers superior training performance because its gradient is smooth and non-monotonic, allowing for a small flow of information even for negative values. This smoothness helps deep networks converge more effectively and leads to higher accuracy rates. The compromise is that Swish is significantly more computationally expensive than ReLU because it requires calculating exponential functions and divisions, which can increase the overall time for each training iteration.
+
 
 ## Toy Examples Calling `swish()` and `ReLU()`
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| output: true # change it to `true` in your `.qmd` file
+#| label: fig-toy-examples
+#| fig-cap: "Toy Examples Calling swish() and relu()"
+#| fig-width: 7
+#| fig-height: 4
+
+# median ID of team
+student_ids <- c(2400951, 2401493, 2402311, 2503741, 2502643)
+
+median_id <- median(student_ids)
+
+set.seed(median_id)
+
+# 10 element random vector between -10 and 10
+random_vector <- runif(10, min = -10, max = 10)
+
+# Activating the vector
+activated_vector <- swish(random_vector)
+
+# Display results to 2 decimal places
+round(random_vector, 2)
+round(activated_vector, 2)
+
+```
+
+```{r}
+# ReLU function
+relu <- function(x) pmax(0, x)
+
+# Activate the vector using ReLU
+relu_activated_vector <- relu(random_vector)
+
+# Display ReLU results
+round(relu_activated_vector, 2)
+```
+Yes, swish avoids dead neurons. In the results, for every negative value in the random_vector, the relu_activated_vector produces exactly 0.00. This is evident for all negative inputs, indicating that those neurons are "dead" since they output zero and their gradients will also be zero.
+
+In contrast, the swish activated_vector produces non-zero negative values for those same negative inputs. Because the output is not zero, the gradient remains active, allowing the neuron to continue updating and learning.
+
 
 ## Exploring Other Activation Functions
+```{r}
+#| eval: true
+#| echo: true
+
+# Define additional activation functions
+leaky_relu <- function(x, alpha = 0.01) {
+  return(ifelse(x > 0, x, alpha * x))
+}
+
+elu <- function(x, alpha = 1.0) {
+  return(ifelse(x > 0, x, alpha * (exp(x) - 1)))
+}
+
+gelu <- function(x) {
+  return(0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))))
+}
+
+# Visualize all functions
+x_range <- seq(-5, 5, length.out = 200)
+
+activation_data <- data.frame(
+  x = rep(x_range, 6),
+  y = c(relu(x_range), swish(x_range), leaky_relu(x_range), 
+        elu(x_range), gelu(x_range), tanh(x_range)),
+  Function = rep(c("ReLU", "Swish", "Leaky ReLU", "ELU", "GELU", "Tanh"), 
+                 each = length(x_range))
+)
+
+ggplot(activation_data, aes(x = x, y = y, color = Function)) +
+  geom_line(linewidth = 1) +
+  labs(x = "x", y = "f(x)", title = "Comparison of Activation Functions") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+Leaky ReLU: Modified ReLU with small negative slope (typically α=0.01) for negative inputs, defined as f(x) = max(αx, x). This prevents dead neurons while maintaining computational efficiency. Used in CNNs and general deep learning architectures.
+
+ELU (Exponential Linear Unit): Smooth activation function f(x) = x for x\>0 and α(e\^x - 1) for x≤0. Produces negative outputs that can push mean activations closer to zero, enabling self-normalization. More robust to noise but computationally expensive due to exponential calculation.
+
+GELU (Gaussian Error Linear Unit): Smooth, non-monotonic activation popular in transformer models like BERT and GPT. Approximated as f(x) ≈ 0.5x(1 + tanh(√(2/π)(x + 0.044715x³))). Provides state-of-the-art performance in NLP tasks but requires more computation than ReLU variants.
+
 
 # Reflection on the Use of GenAI (15%)
+
+solutions when simpler ones would work
+
+#### Understanding vs. Completion
+
+GenAI made it easy to "complete" tasks without truly "understanding" them. We had to consciously resist this and invest time in:
+
+-   Reading through generated code line by line
+-   Testing code with different inputs to see what happens
+-   Explaining the code to each other in our own words
+
+### Our Key Takeaways
+
+#### What We Learned About Using GenAI Effectively
+
+1.  Understand first, then use AI - Try solving problems ourselves before consulting AI
+2.  Ask for explanations, not just solutions - Request "why" and "how" alongside code
+3.  Iterate and customize - Use AI suggestions as starting points, then adapt them
+4.  Verify and validate - Always test AI-generated code and check if it makes sense
+5.  Learn the fundamentals - AI is most helpful when we already have basic understanding
+
+#### Our Honest Reflection
+
+GenAI has been incredibly helpful, but it's also been a double-edged sword. The ease of getting answers made it tempting to skip the struggle of learning. However, we discovered that:
+
+> The struggle is where the learning happens.
+
+When we blindly copied code, we learned nothing. When we used AI to understand concepts and then wrote our own code, we learned deeply.
+
+#### Moving Forward
+
+We plan to use GenAI more strategically:
+
+-   Use it to understand errors after we've tried debugging ourselves
+-   Ask it to explain concepts we find confusing in lectures
+-   Request it to review our code and suggest improvements
+-   Avoid copying code without understanding each line
+-   Stop using it as a crutch to avoid thinking through problems
+-   Don't let it prevent us from developing independent problem-solving skills
+
+### Final Thoughts
+
+GenAI tools like Claude and Gemini have transformed how we approach learning data science. They've made us more efficient and confident, but they've also revealed an important truth: technology can assist learning, but it cannot replace the process of learning itself.
+
+The real skill isn't just writing code that works—it's understanding *why* it works, *when* to use different approaches, and *how* to adapt solutions to new problems. GenAI can help us get there faster, but only if we remain active, critical learners who use these tools thoughtfully.
+
+As we continue in this field, we believe the most valuable professionals won't be those who can prompt AI the best, but those who can combine AI assistance with deep understanding, critical thinking, and genuine problem-solving ability.
