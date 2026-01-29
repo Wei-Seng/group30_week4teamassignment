@@ -155,26 +155,187 @@ nrow(population_reduced)
 nrow(indicator_reduced)
 ```
 
+```{r}
+#| label: import-data
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# Read World Bank CSVs (skip 4 metadata rows)
+ind_raw <- readr::read_csv("API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+                           skip = 4, show_col_types = FALSE)
+pop_raw <- readr::read_csv("API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+                           skip = 4, show_col_types = FALSE)
+
+# Drop completely-empty columns
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# Pick latest year that exists in BOTH files
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# Build latest-year indicator + population tables (countries only; exclude World)
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+```
 
 ## Removing Rows not Pertaining to Countries
 
+
 ### Importing the country_codes Table
+
+#| label: country-codes-optional
+#| echo: false
+#| message: false
+#| warning: false
+
+# OPTIONAL stricter approach (only if your instructor requires it):
+# country_codes <- readr::read_csv(
+#   "Metadata_Country_API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+#   show_col_types = FALSE
+# ) |>
+#   janitor::clean_names() |>
+#   filter(!is.na(region), !is.na(incomegroup)) |>
+#   select(country_code)
+#
+# ind_latest <- ind_latest |> semi_join(country_codes, by = "country_code")
+# pop_latest <- pop_latest |> semi_join(country_codes, by = "country_code")
+
 
 ### Checking the Number of Rows in`population` and `indicator`
 
+#| label: check-rows-before
+#| echo: false
+#| message: false
+#| warning: false
+
+nrow(ind); nrow(pop)
+
 ### Removing Non-Country Rows
+
+#| label: non-country-rows-note
+#| echo: false
+#| message: false
+#| warning: false
+
+# Non-country rows removed by filtering to 3-letter codes and excluding WLD.
+
 
 ### Checking the Number of Rows in the Reduced Tables
 
+#| label: check-rows-after
+#| echo: false
+#| message: false
+#| warning: false
+
+nrow(ind_latest); nrow(pop_latest)
+
+
 ## Analyzing Country-Level Data
+
+
 
 ### Generating the Rankings
 
+#| label: top10-patents-with-population
+#| echo: false
+#| message: false
+#| warning: false
+
+out <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(
+    rank_by_population = dense_rank(desc(population)),
+    rank_by_indicator  = dense_rank(desc(indicator_value))
+  ) |>
+  filter(rank_by_indicator <= 10) |>
+  arrange(desc(indicator_value), desc(population)) |>
+  select(
+    country_name,
+    country_code,
+    population,
+    indicator_value,
+    rank_by_population,
+    rank_by_indicator
+  )
+
+gt(out)
+
+
 ### Analyzing the Results
+
+
 
 ### Generating "Large Country Low per capita Indicator" table
 
+
+#| label: pop-above-median-indpc-below-median
+#| echo: false
+#| message: false
+#| warning: false
+
+df <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(indicator_per_capita = indicator_value / population)
+
+global_median_pop   <- median(df$population, na.rm = TRUE)
+global_median_indpc <- median(df$indicator_per_capita, na.rm = TRUE)
+
+filtered <- df |>
+  filter(
+    population > global_median_pop,
+    indicator_per_capita < global_median_indpc
+  )
+
+total_countries <- n_distinct(filtered$country_code)
+
+top10 <- filtered |>
+  arrange(desc(population)) |>
+  slice_head(n = 10) |>
+  select(country_name, country_code, population, indicator_per_capita)
+
+tibble(year = latest_year, total_countries = total_countries) |> gt()
+top10 |> gt()
+
 ### Analyzing the Results
+
+#| label: top10-patents-per-capita
+#| echo: false
+#| message: false
+#| warning: false
+
+out_per_capita <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(
+    indicator_per_capita = indicator_value / population,
+    rank_per_capita = dense_rank(desc(indicator_per_capita))
+  ) |>
+  filter(rank_per_capita <= 10) |>
+  arrange(desc(indicator_per_capita)) |>
+  select(country_name, country_code, indicator_per_capita, rank_per_capita)
+
+gt(out_per_capita)
+
 
 # `R` Task (25%)
 
