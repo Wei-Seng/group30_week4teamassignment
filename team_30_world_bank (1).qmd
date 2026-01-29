@@ -1,0 +1,659 @@
+---
+title: "Team 01 World Bank"
+subtitle: AAI1001 -- Data Engineering and Visualization<br>AY25/26 Tri 2 (Assisted by GenAI)<br>Assessment 2 (Teamwork 1)
+
+author: 
+  - name: <b>KOH SOON CHUAN</b> (2400951)
+  - name: <b>CHI WEI SENG</b> (2401493)
+  - name: <b>CHOONG WAN QIN</b> (2402311)
+  - name: <b>VENUS LOW</b> (2503741)
+  - name: <b>GOH JASON FADIL</b> (2502643)
+
+date: 2026-01-29
+date-format: "dddd MMM DD, YYYY"
+
+# more settings
+format: 
+  html:
+    toc: true
+    toc-location: left
+    number-sections: true
+    embed-resources: true
+    theme: cosmo
+    code-fold: true
+    code-summary: "Click to expand/collapse"
+    
+---
+
+
+# Analyzing Country-Level Statistics on [your assigned data] (50%)
+
+## About the data
+In this team assessment, we are working with two data sets from the World Bank which provides international demographics as well as patent application information. The first data set contains information on the population of various countries which includes the country names, regions, and income groups. The population data is essential when analyzing national indicators and how it is influenced by the country size. 
+\
+\
+The second data set focuses on the indicator "Patent applications, residents". According to the World Bank metadata, the metadata measures the patent applications filed by individuals or organizations that are residents of a certain country.
+\
+\
+It is important to study this indicator as it reflects a country's ability to create innovative residents, which often indicate strong Research and Development (R&D) activities. The metadata captures invention originating from within the country rather than applications filed from foreign entities. By combining this indicator with the population data, we can further analyze the patent activities in relation to the size of the population, providing insights into innovation density and trends across different countries and regions.
+
+## Cleaning the Data
+
+### Creating the clean_up_wb_csv() Function
+
+```{r}
+clean_up_wb_csv <- function(
+    in_file,
+    out_file = "world_bank_data.csv") {
+  # Use readr::read_lines() to read the file line by line
+  lines <- readr::read_lines(in_file)
+
+  # Drop all lines before the first line that starts with
+  # "Country Name"
+  lines <- lines[stringr::str_which(lines, "^\"Country Name\""):length(lines)]
+
+  # Remove any comma at the end of a line
+  lines <- stringr::str_remove(lines, ",$")
+
+  # Edit the first line performing all of the following steps:
+  # *   Convert all uppercase letters to lower case.
+  # *   Replace any whitespace with underscores.
+  # *   Put `year_` in front of any string in double-quotation marks that
+  #     starts with a digit.
+  # *   Remove all double-quotation marks.
+  lines[1] <- lines[1] |>
+    stringr::str_to_lower() |>
+    stringr::str_replace_all(" ", "_") |>
+    stringr::str_replace_all("\"(\\d+)", "year_\\1") |>
+    stringr::str_remove_all("\"")
+
+  # Define a function to remove double quotation marks around empty strings
+  # and integers
+  remove_quotes <- function(line) {
+  stringr::str_replace_all(
+    line,
+    "\"(\\s*|-?\\d+)\"",
+    "\\1"
+  )
+}
+
+  # Apply the function to each line using purrr's map_chr() function
+  lines <- c(
+    lines[1],
+    purrr::map_chr(lines[-1], remove_quotes)
+  )
+
+  # Rename country_name to country_name_wb to distinguish it from the
+  # country_name_en column in the country_codes table. The names in the
+  # tables don't match. Instead country_code should be used for joining
+  # the tables.
+  lines[1] <- stringr::str_replace(
+    lines[1],
+    "country_name",
+    "country_name_wb"
+  )
+
+  # Write the cleaned-up lines to a new file
+  readr::write_lines(lines, out_file)
+}
+```
+
+### Calling clean_up_wb_csv() to Clean the Data
+```{r}
+# Clean population data
+clean_up_wb_csv(
+in_file = "world_bank_total_population/API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  out_file = "population.csv"
+)
+
+# Clean patent applications (residents) data
+clean_up_wb_csv(
+  in_file = "API_IP.PAT.RESD_DS2_en_csv_v2_226/API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  out_file = "indicator.csv"
+)
+```
+
+As evidence that the data import was successful, this is a screenshot of the RStudio Window showing the view of the indicator table.
+
+![Screenshot of Imported Indicator Table](indicator_screenshot.png)
+
+## Importing the Data to RStudio
+
+```{r}
+#| echo: true
+#| eval: true
+
+library(tidyverse)
+population <- read_csv("population.csv")
+indicator <- read_csv("indicator.csv")
+
+#| label: fig-indicator
+#| fig-cap: "Screenshot of Imported indicator Table"
+#| echo: false
+
+knitr::include_graphics("indicator_screenshot.png")
+
+#| echo: true
+country_codes <- read_csv("country_codes.csv")
+
+#| echo: true
+nrow(population)
+nrow(indicator)
+
+#| echo: true
+population_reduced <- population |> 
+  semi_join(country_codes, by = "country_code")
+
+#| echo: true
+#| eval: true
+
+indicator_reduced <- indicator |> 
+  semi_join(country_codes, by = "country_code")
+
+#| echo: true
+nrow(population_reduced)
+nrow(indicator_reduced)
+```
+
+```{r}
+#| label: import-data
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# Read World Bank CSVs (skip 4 metadata rows)
+ind_raw <- readr::read_csv("API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+                           skip = 4, show_col_types = FALSE)
+pop_raw <- readr::read_csv("API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+                           skip = 4, show_col_types = FALSE)
+
+# Drop completely-empty columns
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# Pick latest year that exists in BOTH files
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# Build latest-year indicator + population tables (countries only; exclude World)
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+```
+
+
+
+
+
+## Removing Rows not Pertaining to Countries
+
+
+### Importing the country_codes Table
+
+
+### Checking the Number of Rows in`population` and `indicator`
+
+
+### Removing Non-Country Rows
+
+
+
+### Checking the Number of Rows in the Reduced Tables
+
+
+## Analyzing Country-Level Data
+
+
+
+### Generating the Rankings
+
+
+```{r}
+#| label: top10-patents-with-population
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# --- Read World Bank CSVs (skip 4 metadata rows) ---
+ind_raw <- readr::read_csv(
+  "API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+pop_raw <- readr::read_csv(
+  "API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+# --- Drop completely-empty columns (World Bank files often have a trailing blank col) ---
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# --- Pick latest year that exists in BOTH files ---
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# --- Build latest-year indicator + population tables ---
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")   # keep countries only (drop World)
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")   # keep countries only (drop World)
+
+# --- Join + ranks + top10 with ties (sorted by indicator, then population) ---
+out <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(
+    rank_by_population = dense_rank(desc(population)),
+    rank_by_indicator  = dense_rank(desc(indicator_value))
+  ) |>
+  filter(rank_by_indicator <= 10) |>
+  arrange(desc(indicator_value), desc(population)) |>
+  select(
+    country_name,
+    country_code,
+    population,
+    indicator_value,
+    rank_by_population,
+    rank_by_indicator
+  )
+
+gt(out)
+
+```
+
+
+```{r}
+#| label: top10-patents-per-capita
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# --- Read World Bank CSVs (skip 4 metadata rows) 
+ind_raw <- readr::read_csv(
+  "API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+pop_raw <- readr::read_csv(
+  "API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+# --- Drop completely-empty columns (World Bank files often have a trailing blank col) ---
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# --- Pick latest year that exists in BOTH files ---
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# --- Build latest-year indicator + population tables (countries only; exclude World) ---
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+# --- Indicator per capita + top 10 with ties ---
+out_per_capita <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(
+    indicator_per_capita = indicator_value / population,
+    rank_per_capita = dense_rank(desc(indicator_per_capita))
+  ) |>
+  filter(rank_per_capita <= 10) |>
+  arrange(desc(indicator_per_capita)) |>
+  select(country_name, country_code, indicator_per_capita, rank_per_capita)
+
+gt(out_per_capita)
+
+```
+
+
+```{r}
+#| label: pop-above-median-indpc-below-median
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+
+# --- Read World Bank CSVs (skip 4 metadata rows) ---
+ind_raw <- readr::read_csv(
+  "API_IP.PAT.RESD_DS2_en_csv_v2_226.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+pop_raw <- readr::read_csv(
+  "API_SP.POP.TOTL_DS2_en_csv_v2_45183.csv",
+  skip = 4,
+  show_col_types = FALSE
+)
+
+# --- Drop completely-empty columns (World Bank files often have a trailing blank col) ---
+ind <- ind_raw |> dplyr::select(where(~ !all(is.na(.x))))
+pop <- pop_raw |> dplyr::select(where(~ !all(is.na(.x))))
+
+# --- Pick latest year that exists in BOTH files ---
+year_cols_ind <- names(ind) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+year_cols_pop <- names(pop) |> keep(~ str_detect(.x, "^\\d{4}$")) |> as.integer()
+latest_year <- max(intersect(year_cols_ind, year_cols_pop))
+
+# --- Build latest-year indicator + population (countries only; exclude World) ---
+ind_latest <- ind |>
+  transmute(
+    country_name = `Country Name`,
+    country_code = `Country Code`,
+    indicator_value = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(indicator_value)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+pop_latest <- pop |>
+  transmute(
+    country_code = `Country Code`,
+    population = suppressWarnings(as.numeric(.data[[as.character(latest_year)]]))
+  ) |>
+  filter(!is.na(population)) |>
+  filter(nchar(country_code) == 3, country_code != "WLD")
+
+# --- Compute per-capita, global medians, filter, count, top 10 by population ---
+df <- ind_latest |>
+  inner_join(pop_latest, by = "country_code") |>
+  mutate(indicator_per_capita = indicator_value / population)
+
+global_median_pop <- median(df$population, na.rm = TRUE)
+global_median_indpc <- median(df$indicator_per_capita, na.rm = TRUE)
+
+filtered <- df |>
+  filter(
+    population > global_median_pop,
+    indicator_per_capita < global_median_indpc
+  )
+
+total_countries <- n_distinct(filtered$country_code)
+
+top10 <- filtered |>
+  arrange(desc(population)) |>
+  slice_head(n = 10) |>
+  select(country_name, country_code, population, indicator_per_capita)
+
+# Show total number, then table of top 10
+tibble(
+  year = latest_year,
+  total_countries = total_countries
+) |>
+  gt()
+
+top10 |>
+  gt()
+
+```
+
+
+### Analyzing the Results
+
+
+In the first ranking table (top 10 by raw indicator value), the leaders are mostly large, innovation‑intensive economies, so it makes sense that high‑population countries such as China, the United States, and India appear near the top: scale tends to increase the number of inventors, firms, and R&D activity, raising total resident patent applications. However, population does not fully explain the ordering—Japan, Korea (Rep.), and Germany rank highly despite smaller populations, implying that innovation capacity, industrial structure, and R&D intensity can outweigh sheer size. 
+
+In the second table (top 10 by indicator per capita), the ranking shifts because normalizing by population highlights countries with high patenting activity relative to population, not just high totals. As a result, rankings align for countries that combine large volumes with strong innovation intensity, but diverge when very populous countries’ totals look modest per person and smaller, innovation‑dense economies move up.
+
+The “large population but low per‑capita indicator” result explains why the two rankings can differ. Some countries rank high on the raw indicator because scale boosts total output, but they drop when the metric is normalized by population. Compared with the per‑capita table, this group reflects weaker innovation intensity per person despite having many people. This suggests that factors like R&D intensity, industrial structure, and how broadly innovation activity is spread matter more than population size alone.
+
+
+
+
+
+
+
+
+
+# `R` Task (25%)
+
+## Creating and Visualizing `swish()`
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| label: fig-swish
+#| fig-cap: "Swish Activation Function"
+#| fig-width: 7
+#| fig-height: 4
+
+# Your `swish()` function here
+swish <- function(x) {
+  x / (1 + exp(-x))
+}
+
+library(ggplot2)
+library(tibble)
+
+x <- -10:10
+y <- swish(x)
+tbl_swish <- tibble(x, y)
+
+ggplot(tbl_swish, aes(x, y)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  labs(x = "x", y = "swish(x)")
+```
+
+## Visualizing the Gradient of `swish()`
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| output: true # change it to `true` in your `.qmd` file
+#| label: fig-d-swish
+#| fig-cap: "Gradient of Swish Activation Function"
+#| fig-width: 7
+#| fig-height: 4
+
+# Your `d_swish()` function here
+
+sigmoid <- function(x) 1 / (1 + exp(-x))
+
+d_swish <- function(x) {
+  s <- swish(x) 
+  sig <- sigmoid(x)
+  return(s + sig * (1 - s))
+}
+
+x <- -10:10
+y <- d_swish(x)
+tbl_d_swish <- tibble(x, y)
+
+ggplot(tbl_d_swish, aes(x, y)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  labs(x = "x", y = "d_swish(x)")
+```
+Swish offers superior training performance because its gradient is smooth and non-monotonic, allowing for a small flow of information even for negative values. This smoothness helps deep networks converge more effectively and leads to higher accuracy rates. The compromise is that Swish is significantly more computationally expensive than ReLU because it requires calculating exponential functions and divisions, which can increase the overall time for each training iteration.
+
+
+## Toy Examples Calling `swish()` and `ReLU()`
+```{r}
+#| eval: true # remember to add echo: true
+#| echo: true
+#| output: true # change it to `true` in your `.qmd` file
+#| label: fig-toy-examples
+#| fig-cap: "Toy Examples Calling swish() and relu()"
+#| fig-width: 7
+#| fig-height: 4
+
+# median ID of team
+student_ids <- c(2400951, 2401493, 2402311, 2503741, 2502643)
+
+median_id <- median(student_ids)
+
+set.seed(median_id)
+
+# 10 element random vector between -10 and 10
+random_vector <- runif(10, min = -10, max = 10)
+
+# Activating the vector
+activated_vector <- swish(random_vector)
+
+# Display results to 2 decimal places
+round(random_vector, 2)
+round(activated_vector, 2)
+
+```
+
+```{r}
+# ReLU function
+relu <- function(x) pmax(0, x)
+
+# Activate the vector using ReLU
+relu_activated_vector <- relu(random_vector)
+
+# Display ReLU results
+round(relu_activated_vector, 2)
+```
+Yes, swish avoids dead neurons. In the results, for every negative value in the random_vector, the relu_activated_vector produces exactly 0.00. This is evident for all negative inputs, indicating that those neurons are "dead" since they output zero and their gradients will also be zero.
+
+In contrast, the swish activated_vector produces non-zero negative values for those same negative inputs. Because the output is not zero, the gradient remains active, allowing the neuron to continue updating and learning.
+
+
+## Exploring Other Activation Functions
+```{r}
+#| eval: true
+#| echo: true
+
+# Define additional activation functions
+leaky_relu <- function(x, alpha = 0.01) {
+  return(ifelse(x > 0, x, alpha * x))
+}
+
+elu <- function(x, alpha = 1.0) {
+  return(ifelse(x > 0, x, alpha * (exp(x) - 1)))
+}
+
+gelu <- function(x) {
+  return(0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))))
+}
+
+# Visualize all functions
+x_range <- seq(-5, 5, length.out = 200)
+
+activation_data <- data.frame(
+  x = rep(x_range, 6),
+  y = c(relu(x_range), swish(x_range), leaky_relu(x_range), 
+        elu(x_range), gelu(x_range), tanh(x_range)),
+  Function = rep(c("ReLU", "Swish", "Leaky ReLU", "ELU", "GELU", "Tanh"), 
+                 each = length(x_range))
+)
+
+ggplot(activation_data, aes(x = x, y = y, color = Function)) +
+  geom_line(linewidth = 1) +
+  labs(x = "x", y = "f(x)", title = "Comparison of Activation Functions") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+Leaky ReLU: Modified ReLU with small negative slope (typically α=0.01) for negative inputs, defined as f(x) = max(αx, x). This prevents dead neurons while maintaining computational efficiency. Used in CNNs and general deep learning architectures.
+
+ELU (Exponential Linear Unit): Smooth activation function f(x) = x for x\>0 and α(e\^x - 1) for x≤0. Produces negative outputs that can push mean activations closer to zero, enabling self-normalization. More robust to noise but computationally expensive due to exponential calculation.
+
+GELU (Gaussian Error Linear Unit): Smooth, non-monotonic activation popular in transformer models like BERT and GPT. Approximated as f(x) ≈ 0.5x(1 + tanh(√(2/π)(x + 0.044715x³))). Provides state-of-the-art performance in NLP tasks but requires more computation than ReLU variants.
+
+
+# Reflection on the Use of GenAI (15%)
+
+solutions when simpler ones would work
+
+#### Understanding vs. Completion
+
+GenAI made it easy to "complete" tasks without truly "understanding" them. We had to consciously resist this and invest time in:
+
+-   Reading through generated code line by line
+-   Testing code with different inputs to see what happens
+-   Explaining the code to each other in our own words
+
+### Our Key Takeaways
+
+#### What We Learned About Using GenAI Effectively
+
+1.  Understand first, then use AI - Try solving problems ourselves before consulting AI
+2.  Ask for explanations, not just solutions - Request "why" and "how" alongside code
+3.  Iterate and customize - Use AI suggestions as starting points, then adapt them
+4.  Verify and validate - Always test AI-generated code and check if it makes sense
+5.  Learn the fundamentals - AI is most helpful when we already have basic understanding
+
+#### Our Honest Reflection
+
+GenAI has been incredibly helpful, but it's also been a double-edged sword. The ease of getting answers made it tempting to skip the struggle of learning. However, we discovered that:
+
+> The struggle is where the learning happens.
+
+When we blindly copied code, we learned nothing. When we used AI to understand concepts and then wrote our own code, we learned deeply.
+
+#### Moving Forward
+
+We plan to use GenAI more strategically:
+
+-   Use it to understand errors after we've tried debugging ourselves
+-   Ask it to explain concepts we find confusing in lectures
+-   Request it to review our code and suggest improvements
+-   Avoid copying code without understanding each line
+-   Stop using it as a crutch to avoid thinking through problems
+-   Don't let it prevent us from developing independent problem-solving skills
+
+### Final Thoughts
+
+GenAI tools like Claude and Gemini have transformed how we approach learning data science. They've made us more efficient and confident, but they've also revealed an important truth: technology can assist learning, but it cannot replace the process of learning itself.
+
+The real skill isn't just writing code that works—it's understanding *why* it works, *when* to use different approaches, and *how* to adapt solutions to new problems. GenAI can help us get there faster, but only if we remain active, critical learners who use these tools thoughtfully.
+
+As we continue in this field, we believe the most valuable professionals won't be those who can prompt AI the best, but those who can combine AI assistance with deep understanding, critical thinking, and genuine problem-solving ability.
